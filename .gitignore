@@ -1,4 +1,7 @@
+# Environments & Cache
 venv/
 __pycache__/
 *.pyc
-.env
+
+# Local runtime scratchpad & outputs (Optional, depending on what you want public)
+fixed_sample.py
