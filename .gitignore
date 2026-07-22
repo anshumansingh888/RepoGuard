@@ -3,5 +3,6 @@ venv/
 __pycache__/
 *.pyc
 
-# Local runtime scratchpad & outputs (Optional, depending on what you want public)
-fixed_sample.py
+# Local testing scratchpad
+test_scratchpad.py
+fixed_sample.p
