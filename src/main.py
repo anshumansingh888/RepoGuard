@@ -65,4 +65,4 @@ def run_repoguard_pipeline(target_path: str, output_path: str):
     print(f"=======================================================")
 
 if __name__ == "__main__":
-    run_repoguard_pipeline("vulnerable_sample.py", "fixed_sample.py")
+    run_repoguard_pipeline("samples/vulnerable_sample.py", "fixed_sample.py")
