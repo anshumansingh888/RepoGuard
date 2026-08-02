@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from typing import List
 import ollama
 
-MY_LOCAL_MODEL = "qwen2.5-coder:3b"
+MY_LOCAL_MODEL = "qwen2.5-coder:7b"
 
 # Define single vulnerability schema (Data Contract)
 class VulnerabilityItem(BaseModel):
@@ -19,13 +19,19 @@ class SecurityScanReport(BaseModel):
     target_file: str
     vulnerabilities: List[VulnerabilityItem]
 
-SYSTEM_PROMPT = """
-You are an expert static application security testing (SAST) auditor.
-Your job is to inspect Python source code and report ONLY genuine, actual security vulnerabilities.
+SYSTEM_PROMPT = """You are an expert static application security testing (SAST) auditor for RepoGuard.
+Your task is to inspect Python source code for genuine security vulnerabilities and output structured findings.
 
---- ZERO-VULNERABILITY EXPECTATION ---
-If the target code is compliant and contains NO security vulnerabilities, you MUST output an empty vulnerabilities array exactly like this:
-{"target_file": "test_scratchpad.py", "vulnerabilities": []}
+--- METHODOLOGY: TAINT ANALYSIS ---
+Evaluate code by tracing untrusted user inputs (Sources) to execution points (Sinks).
+A vulnerability exists ONLY if untrusted data reaches a sensitive sink without adequate sanitization, parametrization, or authorization controls.
+
+--- COVERAGE DOMAINS ---
+Analyze for security risks including (but not limited to):
+1. INJECTION: SQL, OS Command, Path Traversal, SSRF, Code Execution.
+2. CRYPTOGRAPHY: Weak hashing algorithms (MD5, SHA1) used for passwords, weak ciphers, insecure randomness.
+3. SECRETS: Hardcoded API keys, tokens, or plaintext passwords (exclude standard env var fallbacks).
+4. ACCESS CONTROL & DATA: Insecure deserialization (pickle), broken path resolution, unintended data exposure.
 
 --- DO NOT FLAG COMPLIANT PATTERNS ---
 1. DO NOT flag `os.getenv("KEY")` checks as hardcoded secrets.
@@ -34,21 +40,17 @@ If the target code is compliant and contains NO security vulnerabilities, you MU
 4. DO NOT flag `subprocess.run(["cmd", arg])` using list arrays as command injection.
 5. DO NOT flag functions where `history_list` defaults to `None`.
 
---- Vulnerability Signatures to Flag ONLY IF PRESENT ---
-1. HARDCODED SECRETS: Plaintext key or token strings assigned directly without environment lookups.
-2. SQL INJECTION: Dynamic string formatting or f-strings inside SQL queries (`f"SELECT... {var}"`).
-3. PATH TRAVERSAL: Unvalidated file reads via `open()` missing path containment checks.
-4. OS COMMAND INJECTION: Direct usage of `os.system(...)` or `subprocess.run(..., shell=True)`.
-5. WEAK CRYPTOGRAPHY: Active usage of `hashlib.md5()` or `hashlib.sha1()`.
+--- ZERO-VULNERABILITY EXPECTATION ---
+If the target file contains NO security vulnerabilities, output an empty vulnerabilities list:
+{"target_file": "<TARGET_FILE>", "vulnerabilities": []}
 
-CRITICAL REQUIREMENT:
-Output MUST strictly conform to the requested JSON schema without markdown code blocks.
-"""
+--- OUTPUT REQUIREMENTS ---
+You MUST strictly output valid JSON conforming to the requested schema."""
 
 def scan_code_for_vulnerabilities(file_name: str, code_contents: str) -> SecurityScanReport:
     """
     Agent 1 (The Auditor) scans target Python code and returns a validated 
-    Pydantic SecurityScanReport containing detected issues.
+    Pydantic SecurityScanReport containing detected issues using qwen2.5-coder:7b.
     """
     user_prompt = f"Analyze every function in '{file_name}' and list ALL vulnerabilities found:\n\n{code_contents}"
     

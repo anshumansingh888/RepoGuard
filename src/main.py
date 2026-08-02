@@ -1,6 +1,6 @@
 import json
-from src.agents.agent1_hacker import scan_code_for_vulnerabilities
 from src.agents.agent2_fixer import fix_code_vulnerabilities
+from src.agents.agent1_hacker import scan_code_for_vulnerabilities
 
 def run_repoguard_pipeline(target_path: str, output_path: str):
     print(f"🚀 [RepoGuard] Starting pipeline scan for: '{target_path}'")
