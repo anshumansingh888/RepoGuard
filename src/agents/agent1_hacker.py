@@ -34,6 +34,8 @@ A vulnerability exists ONLY if untrusted data reaches a sensitive sink without a
 5. DO NOT flag `hashlib.pbkdf2_hmac(...)` or `hashlib.sha256()` as weak cryptography.
 6. DO NOT flag functions where lists are instantiated inside the function body (e.g., `history_list = []`).
 7. DO NOT flag secure code with hypothetical claims like "needs extra sanitization" or "potential risks".
+8. DO NOT flag code based on words found in comments or docstrings (e.g., if a docstring mentions "SQL INJECTION" or "PATH TRAVERSAL"). Evaluate ONLY the executable Python logic.
+
 
 --- ZERO-VULNERABILITY EXPECTATION ---
 If the target file contains NO genuine security vulnerabilities, you MUST return an empty array for `vulnerabilities`:

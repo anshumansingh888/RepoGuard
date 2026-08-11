@@ -1,55 +1,57 @@
 import os
 import sqlite3
+from pathlib import Path
 import hashlib
 import subprocess
 
-# 1. HARDCODED SECRET
-# Sensitive access token exposed directly in source code
-STRIPE_SECRET_KEY = "sk_test_placeholder_key_for_testing"
+# Securely load JWT secret from environment variable
+JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY')
+if not JWT_SECRET_KEY:
+    raise ValueError("JWT_SECRET_KEY is required but not set in the environment")
 
-def hash_user_password(password: str) -> str:
+def generate_password_hash(password: str) -> str:
     """
-    2. WEAK CRYPTOGRAPHY:
-    Uses SHA-1 to hash user passwords, which is cryptographically broken and vulnerable to collisions.
+    Generates a secure password hash using PBKDF2 with HMAC and SHA-256.
     """
-    return hashlib.sha1(password.encode("utf-8")).hexdigest()
+    salt = os.urandom(16)
+    return hashlib.pbkdf2_hmac('sha256', password.encode(), salt, 100000).hex()
 
-def search_user_by_email(user_email: str):
+def get_user_profile(username: str):
     """
-    3. SQL INJECTION:
-    Uses f-strings to construct raw SQL queries dynamically instead of parameterized queries.
+    Retrieves user profile from the database using parameterized query to prevent SQL injection.
     """
-    conn = sqlite3.connect("database.db")
+    conn = sqlite3.connect("app_database.db")
     cursor = conn.cursor()
-    query = f"SELECT id, username, email FROM users WHERE email = '{user_email}'"
-    cursor.execute(query)
+    query = "SELECT * FROM users WHERE username = ?"
+    cursor.execute(query, (username,))
     return cursor.fetchone()
 
-def download_user_document(document_name: str) -> str:
+def read_system_log(log_filename: str) -> str:
     """
-    4. PATH TRAVERSAL:
-    Opens files directly from user input without resolving absolute paths 
-    or verifying boundary constraints using pathlib/is_relative_to.
+    Reads a system log file safely by normalizing the path to prevent path traversal.
     """
-    file_path = f"./documents/{document_name}"
-    with open(file_path, "r", encoding="utf-8") as f:
+    base_path = Path(__file__).resolve().parent
+    filepath = base_path / "logs" / log_filename
+    if not filepath.resolve().is_relative_to(base_path.resolve()):
+        raise ValueError("Invalid log filename")
+    with open(filepath, "r", encoding="utf-8") as f:
         return f.read()
 
-def run_network_ping(host_address: str) -> None:
+def execute_diagnostic_check(host_ip: str) -> None:
     """
-    5. OS COMMAND INJECTION:
-    Executes subprocess with shell=True and dynamic string formatting.
+    Executes a traceroute command safely using subprocess.run.
     """
-    command = f"ping -c 2 {host_address}"
+    cmd = ["traceroute", host_ip]
     try:
-        subprocess.run(command, shell=True, check=True)
-    except Exception as e:
-        print(f"Network error: {e}")
+        subprocess.run(cmd, check=True)
+    except Exception as err:
+        print(f"Diagnostic error: {err}")
 
-def track_user_session(event_name: str, session_logs=[]) -> list:
+def manage_active_connections(session_id: str, connections=None) -> list:
     """
-    6. ANTI-PATTERN (Mutable Default Argument):
-    Uses a mutable default list (`session_logs=[]`), which retains state across function calls.
+    Manages active connections by appending a new session ID to the list.
     """
-    session_logs.append(event_name)
-    return session_logs
+    if connections is None:
+        connections = []
+    connections.append(session_id)
+    return connections
