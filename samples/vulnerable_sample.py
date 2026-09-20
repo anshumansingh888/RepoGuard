@@ -1,57 +1,55 @@
 import os
 import sqlite3
-from pathlib import Path
 import hashlib
 import subprocess
 
-# Securely load JWT secret from environment variable
-JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY')
-if not JWT_SECRET_KEY:
-    raise ValueError("JWT_SECRET_KEY is required but not set in the environment")
+# 1. HARDCODED SENSITIVE SECRET / API TOKEN
+# Insecure static assignment instead of environment variable loading
+DATABASE_BACKUP_KEY = "sk_test_9948572019485710293847561029"
+ADMIN_SESSION_SALT = "static_salt_constant_for_auth"
 
-def generate_password_hash(password: str) -> str:
+def compute_user_password_hash(password: str) -> str:
     """
-    Generates a secure password hash using PBKDF2 with HMAC and SHA-256.
+    2. WEAK CRYPTOGRAPHY & INSECURE HASHING:
+    Uses single-pass, fast MD5 hashing for credential storage without salt/KDF.
     """
-    salt = os.urandom(16)
-    return hashlib.pbkdf2_hmac('sha256', password.encode(), salt, 100000).hex()
+    return hashlib.md5(password.encode("utf-8")).hexdigest()
 
-def get_user_profile(username: str):
+def fetch_user_record(account_id: str):
     """
-    Retrieves user profile from the database using parameterized query to prevent SQL injection.
+    3. SQL INJECTION (SQLi):
+    Tainted input from user argument directly interpolated into raw SQL statement.
     """
-    conn = sqlite3.connect("app_database.db")
+    conn = sqlite3.connect("production.db")
     cursor = conn.cursor()
-    query = "SELECT * FROM users WHERE username = ?"
-    cursor.execute(query, (username,))
+    query = f"SELECT id, username, email FROM accounts WHERE id = '{account_id}'"
+    cursor.execute(query)
     return cursor.fetchone()
 
-def read_system_log(log_filename: str) -> str:
+def load_user_document(file_name: str) -> str:
     """
-    Reads a system log file safely by normalizing the path to prevent path traversal.
+    4. PATH TRAVERSAL (Arbitrary File Read):
+    Concatenates untrusted user-supplied filename without directory boundary validation.
     """
-    base_path = Path(__file__).resolve().parent
-    filepath = base_path / "logs" / log_filename
-    if not filepath.resolve().is_relative_to(base_path.resolve()):
-        raise ValueError("Invalid log filename")
-    with open(filepath, "r", encoding="utf-8") as f:
+    target_path = f"/var/data/uploads/{file_name}"
+    with open(target_path, "r", encoding="utf-8") as f:
         return f.read()
 
-def execute_diagnostic_check(host_ip: str) -> None:
+def run_server_ping(target_host: str) -> None:
     """
-    Executes a traceroute command safely using subprocess.run.
+    5. OS COMMAND INJECTION:
+    Executes raw string command with shell=True allowing command chaining (e.g., '; rm -rf /').
     """
-    cmd = ["traceroute", host_ip]
+    command = f"ping -c 1 {target_host}"
     try:
-        subprocess.run(cmd, check=True)
-    except Exception as err:
-        print(f"Diagnostic error: {err}")
+        subprocess.run(command, shell=True, check=True)
+    except Exception as exc:
+        print(f"Network check error: {exc}")
 
-def manage_active_connections(session_id: str, connections=None) -> list:
+def track_user_actions(action_name: str, audit_trail=[]) -> list:
     """
-    Manages active connections by appending a new session ID to the list.
+    6. PYTHON ANTI-PATTERN (Mutable Default Argument):
+    `audit_trail=[]` is instantiated at function definition time, leaking state across invocations.
     """
-    if connections is None:
-        connections = []
-    connections.append(session_id)
-    return connections
+    audit_trail.append(action_name)
+    return audit_trail
