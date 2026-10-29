@@ -1,96 +1,80 @@
-import json
-from src.agents.agent2_fixer import fix_code_vulnerabilities
-from src.agents.agent1_hacker import scan_code_for_vulnerabilities
+"""
+RepoGuard CLI Entry Point.
+Executes the autonomous SAST audit and remediation pipeline via RepoGuardPipeline.
+"""
+import sys
+from src.config import settings
+from src.core.pipeline import RepoGuardPipeline, PipelineResult
 
-MAX_ITERATIONS = 3
+# Backward-compatibility aliases
+MAX_ITERATIONS = settings.max_iterations
+clean_markdown_fences = RepoGuardPipeline.clean_markdown_fences
 
-def clean_markdown_fences(code: str) -> str:
-    """Removes surrounding markdown code fences from LLM outputs."""
-    clean_code = code.strip()
-    if clean_code.startswith("```python"):
-        clean_code = clean_code.split("```python", 1)[1]
-    elif clean_code.startswith("```"):
-        clean_code = clean_code.split("```", 1)[1]
-    if clean_code.endswith("```"):
-        clean_code = clean_code.rsplit("```", 1)[0]
-    return clean_code.strip()
 
-def run_repoguard_pipeline(target_path: str = "samples/vulnerable_sample.py", output_path: str = "fixed_sample.py"):
+def run_repoguard_pipeline(
+    target_path: str = "samples/vulnerable_sample.py", 
+    output_path: str = "fixed_sample.py",
+    max_iterations: int = settings.max_iterations
+) -> PipelineResult:
+    """Executes the RepoGuard pipeline from the CLI and writes the secure output."""
     print(f"🚀 [RepoGuard] Starting pipeline scan for: '{target_path}'")
     
     try:
         with open(target_path, "r", encoding="utf-8") as f:
-            current_code = f.read()
+            source_code = f.read()
     except FileNotFoundError:
         print(f"❌ Error: Could not locate '{target_path}'.")
-        return
+        sys.exit(1)
 
-    # Iterative Remediation Loop
-    for iteration in range(1, MAX_ITERATIONS + 1):
-        print(f"\n-------------------------------------------------------")
-        print(f"🔍 [Pass {iteration}/{MAX_ITERATIONS}] Running Agent 1 (The Auditor)...")
+    pipeline = RepoGuardPipeline(max_iterations=max_iterations)
+
+    def cli_progress_handler(event: dict):
+        kind = event.get("event")
+        pass_num = event.get("pass_num", 1)
         
-        try:
-            report_object = scan_code_for_vulnerabilities(target_path, current_code)
-        except Exception as e:
-            print(f"❌ Agent 1 failed during scan: {e}")
-            return
-
-        # GATEKEEPER / VERIFICATION CHECK
-        if not report_object.vulnerabilities:
+        if kind == "audit_start":
+            print(f"\n-------------------------------------------------------")
+            print(f"🔍 [Pass {pass_num}/{max_iterations}] Running Agent 1 (The Auditor)...")
+        elif kind == "audit_complete":
+            count = event.get("vulnerabilities", 0)
+            if count > 0:
+                print(f"⚠️  Agent 1 detected {count} issue(s) on Pass {pass_num}.")
+        elif kind == "fast_path_exit":
             print("\n=======================================================")
-            if iteration == 1:
-                print("✅ SUCCESS: Target file is fully compliant! (Agent 2 skipped)")
-            else:
-                print(f"✅ REPAIR VERIFIED: Code passed audit on Iteration {iteration}!")
-            
+            print("✅ SUCCESS: Target file is fully compliant! (Agent 2 skipped)")
             print(f"   Writing secure code to '{output_path}'...")
             print("=======================================================")
-            
-            with open(output_path, "w", encoding="utf-8") as f:
-                f.write(current_code)
-            return
+        elif kind == "convergence_exit":
+            print("\n=======================================================")
+            print(f"✅ REPAIR VERIFIED: Code passed audit on Iteration {pass_num}!")
+            print(f"   Writing secure code to '{output_path}'...")
+            print("=======================================================")
+        elif kind == "fix_start":
+            print(f"🛠️  Passing report to Agent 2 (The Fixer) for Pass {pass_num}...")
+        elif kind == "syntax_error":
+            print(f"⚠️  [AST Gatekeeper Warning] {event.get('error')}")
+        elif kind == "max_iterations_reached":
+            print(f"🛑 Reached maximum iteration limit ({max_iterations}). Writing best-effort output...")
 
-        # IF VULNERABILITIES REMAIN: Pass to Agent 2
-        print(f"⚠️  Agent 1 detected {len(report_object.vulnerabilities)} issue(s) on Pass {iteration}.")
-        
-        if iteration == MAX_ITERATIONS:
-            print(f"🛑 Reached maximum iteration limit ({MAX_ITERATIONS}). Writing best-effort output...")
-            break
+    result = pipeline.run(target_path, source_code, on_step=cli_progress_handler)
 
-        print(f"🛠️  Passing report to Agent 2 (The Fixer) for Pass {iteration}...")
-        report_dict = report_object.model_dump()
-
-        try:
-            fixed_code = fix_code_vulnerabilities(target_path, current_code, report_dict)
-        except Exception as e:
-            print(f"❌ Agent 2 failed during remediation: {e}")
-            return
-
-        # Clean code and apply import post-processing
-        clean_code = clean_markdown_fences(fixed_code)
-
-        required_imports = []
-        if "subprocess." in clean_code and "import subprocess" not in clean_code:
-            required_imports.append("import subprocess")
-        if "os." in clean_code and "import os" not in clean_code:
-            required_imports.append("import os")
-        if "Path(" in clean_code and "from pathlib import Path" not in clean_code:
-            required_imports.append("from pathlib import Path")
-
-        if required_imports:
-            clean_code = "\n".join(required_imports) + "\n" + clean_code
-
-        # Update current_code so the NEXT loop tests Agent 2's fix!
-        current_code = clean_code
-
-    # Write final state if loop maxed out
+    # Persist the output code
     with open(output_path, "w", encoding="utf-8") as f:
-        f.write(current_code)
-    
-    print(f"\n=======================================================")
-    print(f"⚠️  PIPELINE FINISHED (Max Attempts Reached): Saved output to '{output_path}'")
-    print(f"=======================================================")
+        f.write(result.final_code)
+
+    if not result.converged and result.iterations_used >= max_iterations:
+        print(f"\n=======================================================")
+        print(f"⚠️  PIPELINE FINISHED (Max Attempts Reached): Saved output to '{output_path}'")
+        print(f"=======================================================")
+
+    return result
+
+
+def main():
+    target = sys.argv[1] if len(sys.argv) > 1 else "samples/vulnerable_sample.py"
+    output = sys.argv[2] if len(sys.argv) > 2 else "fixed_sample.py"
+    run_repoguard_pipeline(target, output)
+
 
 if __name__ == "__main__":
-    run_repoguard_pipeline("samples/vulnerable_sample.py", "fixed_sample.py")
+    main()

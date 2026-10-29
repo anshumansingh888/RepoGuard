@@ -1,9 +1,8 @@
 import streamlit as st
 import time
-import re
 import difflib
-from src.agents.agent1_hacker import scan_code_for_vulnerabilities
-from src.agents.agent2_fixer import fix_code_vulnerabilities
+from src.config import settings
+from src.core.pipeline import RepoGuardPipeline
 
 # --- PAGE SETUP ---
 st.set_page_config(
@@ -272,12 +271,21 @@ with st.sidebar:
     st.markdown("---")
     
     st.markdown("**Core Configuration**")
-    model_choice = st.selectbox("LLM Inference Engine", ["qwen2.5-coder:7b"], index=0)
-    max_passes = st.slider("Convergence Loop Depth", min_value=1, max_value=3, value=3)
+    model_choice = st.selectbox("LLM Inference Engine", [settings.model_name], index=0)
+    max_passes = st.slider("Convergence Loop Depth", min_value=1, max_value=5, value=settings.max_iterations)
     
     st.markdown("---")
     st.markdown("**Sample Selection**")
-    mode = st.radio("Source Target", ["⚡ Demo Vulnerability Bundle", "✍️ Custom Code Editor (Paste/Type)"])
+    mode = st.radio(
+        "Source Target", 
+        [
+            "⚡ Full Vulnerability Bundle (6 Flaws)",
+            "🛡️ Clean Compliant Code (Fast-Path Exit)",
+            "🗄️ SQL Injection & Insecure Auth",
+            "💻 Command Injection & Path Traversal",
+            "✍️ Custom Code Editor (Paste/Type)"
+        ]
+    )
 
 # --- NEW MODERN HERO HEADER ---
 st.markdown("""
@@ -358,6 +366,48 @@ def find_account(user_id):
         label_visibility="collapsed"
     )
     target_filename = "custom_script.py"
+elif mode == "🛡️ Clean Compliant Code (Fast-Path Exit)":
+    try:
+        with open("samples/clean_sample.py", "r", encoding="utf-8") as f:
+            clean_preset = f.read()
+    except Exception:
+        clean_preset = "# clean_sample.py"
+    target_code = st.text_area(
+        label="Code Input Panel",
+        value=clean_preset,
+        height=280,
+        label_visibility="collapsed"
+    )
+    target_filename = "samples/clean_sample.py"
+    st.caption("Loaded preset: 0 vulnerabilities. Demonstrates zero-flaw gatekeeper bypass (Agent 2 skipped).")
+elif mode == "🗄️ SQL Injection & Insecure Auth":
+    try:
+        with open("samples/sqli_demo.py", "r", encoding="utf-8") as f:
+            sqli_preset = f.read()
+    except Exception:
+        sqli_preset = "# sqli_demo.py"
+    target_code = st.text_area(
+        label="Code Input Panel",
+        value=sqli_preset,
+        height=280,
+        label_visibility="collapsed"
+    )
+    target_filename = "samples/sqli_demo.py"
+    st.caption("Loaded preset: SQL Injection, Hardcoded Secrets, and Weak MD5 password storage.")
+elif mode == "💻 Command Injection & Path Traversal":
+    try:
+        with open("samples/command_exec_demo.py", "r", encoding="utf-8") as f:
+            cmd_preset = f.read()
+    except Exception:
+        cmd_preset = "# command_exec_demo.py"
+    target_code = st.text_area(
+        label="Code Input Panel",
+        value=cmd_preset,
+        height=280,
+        label_visibility="collapsed"
+    )
+    target_filename = "samples/command_exec_demo.py"
+    st.caption("Loaded preset: OS Command Injection (`shell=True`), `os.system()`, and arbitrary Path Traversal.")
 else:
     target_code = st.text_area(
         label="Code Input Panel",
@@ -377,56 +427,48 @@ if target_code:
         st.markdown("#### 🔄 **Execution Trace**")
         status_box = st.status("Initializing Security Pipeline...", expanded=True)
         
-        current_code = target_code
-        iteration = 1
-        is_converged = False
-        audit_history = []
-        final_report = None
-        
-        start_time = time.time()
-        
-        while iteration <= max_passes:
-            status_box.write(f"🔎 **Pass {iteration}/{max_passes}: Agent 1 (Auditor) analyzing taint-sinks...**")
-            report = scan_code_for_vulnerabilities(target_filename, current_code)
-            count = len(report.vulnerabilities)
-            audit_history.append({"pass": iteration, "count": count})
-            final_report = report
-            
-            if count == 0:
-                if iteration == 1:
-                    status_box.write("✅ **Fast-path Exit:** No vulnerabilities found. Source code is secure.")
-                else:
-                    status_box.write(f"🎉 **Convergence Reached on Pass {iteration}:** Re-audit verified 0 residual flaws!")
-                is_converged = True
-                break
-                
-            status_box.write(f"⚠️ **Pass {iteration}: Flagged {count} vulnerability(ies). Dispatching Agent 2 (Fixer)...**")
-            fixed = fix_code_vulnerabilities(target_filename, current_code, report)
-            
-            # Sanitization
-            clean_fixed = re.sub(r"^```(?:python)?\n", "", fixed, flags=re.MULTILINE)
-            clean_fixed = re.sub(r"\n```$", "", clean_fixed, flags=re.MULTILINE).strip()
-            
-            if "from pathlib import Path" not in clean_fixed and "Path(" in clean_fixed:
-                clean_fixed = "from pathlib import Path\n" + clean_fixed
-            if "import subprocess" not in clean_fixed and "subprocess." in clean_fixed:
-                clean_fixed = "import subprocess\n" + clean_fixed
-                
-            current_code = clean_fixed
-            iteration += 1
+        pipeline = RepoGuardPipeline(max_iterations=max_passes)
 
+        def streamlit_trace_handler(event: dict):
+            kind = event.get("event")
+            pass_num = event.get("pass_num", 1)
+            
+            if kind == "audit_start":
+                status_box.write(f"🔎 **Pass {pass_num}/{max_passes}: Agent 1 (Auditor) analyzing taint-sinks...**")
+            elif kind == "fast_path_exit":
+                status_box.write("✅ **Fast-path Exit:** No vulnerabilities found. Source code is secure.")
+            elif kind == "convergence_exit":
+                status_box.write(f"🎉 **Convergence Reached on Pass {pass_num}:** Re-audit verified 0 residual flaws!")
+            elif kind == "fix_start":
+                count = event.get("vulnerabilities", 0)
+                status_box.write(f"⚠️ **Pass {pass_num}: Flagged {count} vulnerability(ies). Dispatching Agent 2 (Fixer)...**")
+            elif kind == "syntax_error":
+                status_box.write(f"⚠️ **AST Gatekeeper Notice:** Syntax issue detected in candidate fix; preserving parseable code state.")
+            elif kind == "max_iterations_reached":
+                count = event.get("vulnerabilities", 0)
+                status_box.write(f"🛑 **Maximum Passes Reached ({max_passes}):** {count} residual flaw(s) remain.")
+
+        start_time = time.time()
+        result = pipeline.run(target_filename, target_code, on_step=streamlit_trace_handler)
         elapsed_time = round(time.time() - start_time, 2)
         status_box.update(label=f"Pipeline Completed in {elapsed_time}s", state="complete", expanded=False)
+
+        current_code = result.final_code
+        audit_history = result.audit_history
+        is_converged = result.converged
+        final_report = result.final_report
+        initial_report = result.initial_report
 
         # --- EXECUTIVE DASHBOARD METRICS ---
         st.markdown("### 📊 **Audit Summary & Telemetry**")
         m1, m2, m3, m4 = st.columns(4)
         
         with m1:
+            initial_count = audit_history[0]['count'] if audit_history else 0
             st.markdown(f"""
                 <div class="glass-card">
                     <div class="card-title">Initial Vulnerabilities</div>
-                    <div class="card-value" style="color: #f85149;">{audit_history[0]['count']}</div>
+                    <div class="card-value" style="color: #f85149;">{initial_count}</div>
                 </div>
             """, unsafe_allow_html=True)
             
@@ -439,7 +481,7 @@ if target_code:
             """, unsafe_allow_html=True)
             
         with m3:
-            residual = 0 if is_converged else audit_history[-1]['count']
+            residual = 0 if is_converged else (audit_history[-1]['count'] if audit_history else 0)
             color = "#3fb950" if residual == 0 else "#f85149"
             st.markdown(f"""
                 <div class="glass-card">
@@ -477,11 +519,15 @@ if target_code:
                 st.code(current_code, language="python", line_numbers=True)
 
         with tab_findings:
-            if final_report and final_report.vulnerabilities:
+            report_to_show = initial_report if (initial_report and initial_report.vulnerabilities) else final_report
+            if report_to_show and report_to_show.vulnerabilities:
                 st.markdown("#### Detected Weaknesses & Sinks")
-                for item in final_report.vulnerabilities:
+                if is_converged and initial_report and initial_report.vulnerabilities:
+                    st.success("✅ All detected vulnerabilities below were autonomously resolved by Agent 2 and verified by Agent 1!")
+                for item in report_to_show.vulnerabilities:
                     badge_style = "badge-critical" if item.severity.upper() in ["CRITICAL", "HIGH"] else "badge-high"
-                    with st.expander(f"[{item.severity.upper()}] Line {item.line_number}: {item.type}"):
+                    status_tag = " [VERIFIED RESOLVED]" if is_converged else ""
+                    with st.expander(f"[{item.severity.upper()}]{status_tag} Line {item.line_number}: {item.type}"):
                         st.markdown(f'<span class="badge {badge_style}">{item.severity.upper()}</span>', unsafe_allow_html=True)
                         st.markdown(f"**Vulnerability Type:** `{item.type}`")
                         st.write(f"**Root Cause Analysis:** {item.description}")

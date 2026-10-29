@@ -8,3 +8,6 @@ test_scratchpad.py
 
 fixed_sample.py
 CLAUDE.md
+.venv/
+docs/
+report.md

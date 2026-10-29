@@ -1,9 +1,10 @@
 import json
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 import ollama
+from src.config import settings
 
-MY_LOCAL_MODEL = "qwen2.5-coder:7b"
+MY_LOCAL_MODEL = settings.model_name
 
 # Define single vulnerability schema (Data Contract)
 class VulnerabilityItem(BaseModel):
@@ -44,11 +45,17 @@ If the target file contains NO genuine security vulnerabilities, you MUST return
 --- OUTPUT REQUIREMENTS ---
 You MUST strictly output valid JSON conforming to the requested schema without markdown code blocks."""
 
-def scan_code_for_vulnerabilities(file_name: str, code_contents: str) -> SecurityScanReport:
+def scan_code_for_vulnerabilities(
+    file_name: str, 
+    code_contents: str, 
+    model: Optional[str] = None
+) -> SecurityScanReport:
     """
     Agent 1 (The Auditor) scans target Python code and returns a validated 
-    Pydantic SecurityScanReport containing detected issues using qwen2.5-coder:7b.
+    Pydantic SecurityScanReport containing detected issues using the configured model.
     """
+    target_model = model or settings.model_name
+    
     # Softened prompt to allow the model to return empty findings when appropriate
     user_prompt = (
         f"Inspect '{file_name}'. If the code follows secure coding standards and contains no security flaws, "
@@ -56,11 +63,11 @@ def scan_code_for_vulnerabilities(file_name: str, code_contents: str) -> Securit
     )
     
     response = ollama.chat(
-        model=MY_LOCAL_MODEL,
+        model=target_model,
         options={
-            "num_ctx": 4096,
-            "temperature": 0.0,  # 0.0 enforces greedy decoding for deterministic output
-            "seed": 42,          # Fixed seed eliminates inter-run variance
+            "num_ctx": settings.num_ctx,
+            "temperature": settings.temperature,  # Enforces greedy decoding for deterministic output
+            "seed": settings.seed,                # Fixed seed eliminates inter-run variance
         },
         messages=[
             {'role': 'system', 'content': SYSTEM_PROMPT},

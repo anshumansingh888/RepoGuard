@@ -1,8 +1,10 @@
 import json
 import re
+from typing import Optional, Union, Dict, Any
 import ollama
+from src.config import settings
 
-MY_LOCAL_MODEL = "qwen2.5-coder:7b"
+MY_LOCAL_MODEL = settings.model_name
 
 SYSTEM_PROMPT = """You are Agent 2 (The Fixer), an expert secure-coding and software engineering assistant for RepoGuard.
 Your primary task is to take a Python source file along with its security vulnerability report and rewrite the original code securely.
@@ -32,11 +34,18 @@ Output ONLY the raw, repaired Python code enclosed inside a single markdown code
 Do NOT include any introduction, explanations, or concluding text.
 """
 
-def fix_code_vulnerabilities(target_file: str, original_code: str, vulnerability_report) -> str:
+def fix_code_vulnerabilities(
+    target_file: str, 
+    original_code: str, 
+    vulnerability_report: Union[Dict[str, Any], str],
+    model: Optional[str] = None
+) -> str:
     """
     Agent 2 (The Fixer) takes the original code and the vulnerability report,
-    then uses qwen2.5-coder:7b to rewrite the code securely.
+    then uses the configured local model to rewrite the code securely.
     """
+    target_model = model or settings.model_name
+
     if isinstance(vulnerability_report, dict):
         report_str = json.dumps(vulnerability_report, indent=2)
     else:
@@ -54,11 +63,11 @@ Please generate the secure, refactored Python code following all remediation rul
 """
 
     response = ollama.chat(
-        model=MY_LOCAL_MODEL,
+        model=target_model,
         options={
-            "num_ctx": 4096,
-            "temperature": 0.0,  # Forces deterministic code output
-            "seed": 42,
+            "num_ctx": settings.num_ctx,
+            "temperature": settings.temperature,  # Forces deterministic code output
+            "seed": settings.seed,
         },
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
