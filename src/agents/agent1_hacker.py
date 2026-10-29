@@ -1,15 +1,19 @@
 import json
+import sys
 from pydantic import BaseModel
 from typing import List, Optional
 import ollama
 from src.config import settings
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 MY_LOCAL_MODEL = settings.model_name
 
 # Define single vulnerability schema (Data Contract)
 class VulnerabilityItem(BaseModel):
     id: str
-    type: str          # e.g., "SQL_INJECTION", "COMMAND_INJECTION", "PATH_TRAVERSAL", "HARDCODED_SECRET"
+    type: str          # e.g., "SQL_INJECTION", "COMMAND_INJECTION", "PATH_TRAVERSAL", "HARDCODED_SECRET", "INSECURE_HASH", "MUTABLE_DEFAULT_ARG"
     line_number: int
     severity: str      # CRITICAL | HIGH | MEDIUM | LOW
     description: str   # Explanation of how the flaw occurs
@@ -27,13 +31,22 @@ Your task is to inspect Python source code for genuine security vulnerabilities 
 Evaluate code by tracing untrusted user inputs (Sources) to execution points (Sinks).
 A vulnerability exists ONLY if untrusted data reaches a sensitive sink without adequate sanitization, parametrization, or authorization controls.
 
+--- EXPLICIT TARGET VULNERABILITY CLASSES ---
+Examine the Python code specifically for the following 6 vulnerability classes:
+1. HARDCODED_SECRET: Hardcoded API keys, tokens, session salts, or passwords (strings containing 'secret', 'token', 'key', 'salt', 'password') assigned as literals instead of loading via `os.getenv()`.
+2. INSECURE_HASH: Weak, fast, or unsalted hashing algorithms (e.g., md5, sha1, plain sha256) used for credential or password storage instead of slow salted KDFs like `hashlib.pbkdf2_hmac`.
+3. SQL_INJECTION: User parameters directly interpolated, formatted, or concatenated into raw SQL query strings (e.g., f"SELECT ... {param}", "%s" formatting in SQL string) passed to `cursor.execute()`.
+4. PATH_TRAVERSAL: File paths formed by concatenating untrusted user-supplied filenames without directory traversal boundary validation (missing `Path.is_relative_to` or boundary checks).
+5. COMMAND_INJECTION: External system commands executed via `shell=True` (e.g. `subprocess.run(cmd, shell=True)`) or insecure system calls like `os.system(cmd)` using formatted strings.
+6. MUTABLE_DEFAULT_ARG: Python anti-pattern where mutable objects (e.g., empty lists `[]` or dicts `{}`) are used as default parameter values in function signatures (`def func(audit_trail=[])`).
+
 --- STRICT GROUND TRUTH EXCLUSION RULES (NEVER FLAG THESE) ---
 1. DO NOT flag `os.getenv("KEY")` or `os.environ.get("KEY")` as hardcoded secrets.
 2. DO NOT flag parameterized SQL queries using placeholders (e.g. `cursor.execute(query, (param,))`).
 3. DO NOT flag path containment checks using `is_relative_to(...)` OR `file_path.startswith(base_path)` as path traversal.
 4. DO NOT flag `subprocess.run(["cmd", arg])` using list arrays (without `shell=True`) as command injection.
 5. DO NOT flag `hashlib.pbkdf2_hmac(...)` or `hashlib.sha256()` as weak cryptography.
-6. DO NOT flag functions where lists are instantiated inside the function body (e.g., `history_list = []`).
+6. DO NOT flag functions where lists are instantiated inside the function body (e.g., `history_list = []` or `if trail is None: trail = []`).
 7. DO NOT flag secure code with hypothetical claims like "needs extra sanitization" or "potential risks".
 8. DO NOT flag code based on words found in comments or docstrings (e.g., if a docstring mentions "SQL INJECTION" or "PATH TRAVERSAL"). Evaluate ONLY the executable Python logic.
 
@@ -56,10 +69,12 @@ def scan_code_for_vulnerabilities(
     """
     target_model = model or settings.model_name
     
-    # Softened prompt to allow the model to return empty findings when appropriate
+    # Send clean, raw unnumbered source code for optimal AST understanding
     user_prompt = (
-        f"Inspect '{file_name}'. If the code follows secure coding standards and contains no security flaws, "
-        f"return an empty array for vulnerabilities.\n\nSource Code:\n{code_contents}"
+        f"Inspect '{file_name}' for genuine security vulnerabilities.\n\n"
+        f"Source Code:\n{code_contents}\n\n"
+        f"If the code follows secure coding standards and contains no security flaws, "
+        f"return an empty array for vulnerabilities: {{\"target_file\": \"{file_name}\", \"vulnerabilities\": []}}."
     )
     
     response = ollama.chat(
@@ -80,20 +95,20 @@ def scan_code_for_vulnerabilities(
     return SecurityScanReport.model_validate_json(response['message']['content'])
 
 if __name__ == "__main__":
-    target_path = "test_scratchpad.py"
+    target_path = "samples/vulnerable_sample.py"
     
     try:
         with open(target_path, "r", encoding="utf-8") as f:
             target_code = f.read()
     except FileNotFoundError:
-        print(f"❌ Error: Could not find '{target_path}'.")
+        print(f"Error: Could not find '{target_path}'.")
         exit(1)
         
-    print(f"🤖 Agent 1 (The Auditor) inspecting '{target_path}' using '{MY_LOCAL_MODEL}'...")
+    print(f"Agent 1 (The Auditor) inspecting '{target_path}' using '{MY_LOCAL_MODEL}'...")
     
     try:
         report = scan_code_for_vulnerabilities(target_path, target_code)
-        print("\n✅ Successfully generated structured Security Report:")
+        print("\nSuccessfully generated structured Security Report:")
         print(report.model_dump_json(indent=2))
     except Exception as e:
-        print(f"\n❌ Failed to generate report: {e}")
+        print(f"\nFailed to generate report: {e}")

@@ -103,6 +103,15 @@ class RepoGuardPipeline:
             audit_history.append({"pass": iteration, "count": count})
             final_report = report
 
+            if count > 0:
+                flaw_details = ", ".join(f"{v.type} (L{v.line_number})" for v in report.vulnerabilities)
+                print(f"[Audit] Found {count} flaw(s) on Pass {iteration}: {flaw_details}")
+            else:
+                if iteration == 1:
+                    print("[Gatekeeper] 0 vulnerabilities detected - taking fast-path exit")
+                else:
+                    print(f"[Gatekeeper] Convergence verified on Pass {iteration}: 0 residual flaws.")
+
             if on_step:
                 on_step({
                     "event": "audit_complete",
@@ -133,11 +142,13 @@ class RepoGuardPipeline:
             fixed_raw = fix_code_vulnerabilities(filename, current_code, report.model_dump())
             clean_fixed = self.clean_markdown_fences(fixed_raw)
             clean_fixed = self.inject_missing_imports(clean_fixed)
+            print(f"[Fixer] Remediated code synthesized via Agent 2 (full-file)")
 
             # AST SYNTAX GATEKEEPER
             is_valid, syntax_error = validate_python_syntax(clean_fixed)
             if not is_valid and syntax_error:
                 syntax_errors.append(f"Pass {iteration}: {syntax_error}")
+                print(f"[AST Gatekeeper Warning] Syntax error in remediated code: {syntax_error}")
                 if on_step:
                     on_step({
                         "event": "syntax_error",
@@ -158,6 +169,7 @@ class RepoGuardPipeline:
             if not verify_fix and is_valid:
                 converged = True
                 audit_history.append({"pass": iteration + 1, "count": 0})
+                print("[Gatekeeper] Fast mode: Fix verified syntactically valid by AST Gatekeeper. Pass 2 re-audit skipped.")
                 if on_step:
                     on_step({
                         "event": "convergence_exit",
@@ -184,6 +196,7 @@ class RepoGuardPipeline:
 
             if verify_count == 0:
                 converged = True
+                print("[Gatekeeper] Final verification confirmed 0 residual flaws!")
                 if on_step:
                     on_step({
                         "event": "convergence_exit",
@@ -191,6 +204,8 @@ class RepoGuardPipeline:
                         "report": verify_report
                     })
             else:
+                flaw_details = ", ".join(f"{v.type} (L{v.line_number})" for v in verify_report.vulnerabilities)
+                print(f"[Audit] Residual flaw(s) remaining after remediation: {flaw_details}")
                 if on_step:
                     on_step({
                         "event": "max_iterations_reached",

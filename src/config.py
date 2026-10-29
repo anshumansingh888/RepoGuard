@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 class RepoGuardSettings(BaseModel):
     """Minimal settings for RepoGuard local execution."""
-    model_name: str = "qwen2.5-coder:7b"
+    model_name: str = "gemma4:26b"
     temperature: float = 0.0
     seed: int = 42
     num_ctx: int = 2048

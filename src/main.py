@@ -6,6 +6,9 @@ import sys
 from src.config import settings
 from src.core.pipeline import RepoGuardPipeline, PipelineResult
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 # Backward-compatibility aliases
 MAX_ITERATIONS = settings.max_iterations
 clean_markdown_fences = RepoGuardPipeline.clean_markdown_fences
