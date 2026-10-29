@@ -64,7 +64,8 @@ class RepoGuardPipeline:
         self,
         filename: str,
         source_code: str,
-        on_step: Optional[Callable[[Dict[str, Any]], None]] = None
+        on_step: Optional[Callable[[Dict[str, Any]], None]] = None,
+        verify_fix: bool = True
     ) -> PipelineResult:
         """
         Executes the closed-loop SAST scan and remediation lifecycle.
@@ -73,6 +74,8 @@ class RepoGuardPipeline:
             filename: Target file name or path.
             source_code: Source Python code to audit and remediate.
             on_step: Optional callback receiving lifecycle event dictionaries.
+            verify_fix: If True (default), performs closed-loop re-audit.
+                        If False (Fast Mode), accepts valid AST syntax fix and skips Pass 2 re-audit.
             
         Returns:
             PipelineResult containing telemetry, reports, and remediated code.
@@ -151,9 +154,22 @@ class RepoGuardPipeline:
                     "syntax_valid": is_valid
                 })
 
+            # FAST MODE: Skip re-audit if requested and syntax is valid
+            if not verify_fix and is_valid:
+                converged = True
+                audit_history.append({"pass": iteration + 1, "count": 0})
+                if on_step:
+                    on_step({
+                        "event": "convergence_exit",
+                        "pass_num": iteration,
+                        "report": report,
+                        "fast_mode": True
+                    })
+                break
+
         # FINAL VERIFICATION RE-AUDIT
-        # If the code was modified by Agent 2 but convergence wasn't checked on the final iteration
-        if not converged and current_code != source_code:
+        # If the code was modified by Agent 2, verify_fix is True, but convergence wasn't verified
+        if verify_fix and not converged and current_code != source_code:
             if on_step:
                 on_step({
                     "event": "audit_start",

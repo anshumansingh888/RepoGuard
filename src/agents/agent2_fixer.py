@@ -64,6 +64,7 @@ Please generate the secure, refactored Python code following all remediation rul
 
     response = ollama.chat(
         model=target_model,
+        keep_alive=settings.keep_alive,
         options={
             "num_ctx": settings.num_ctx,
             "temperature": settings.temperature,  # Forces deterministic code output

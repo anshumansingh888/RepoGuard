@@ -37,13 +37,13 @@ A vulnerability exists ONLY if untrusted data reaches a sensitive sink without a
 7. DO NOT flag secure code with hypothetical claims like "needs extra sanitization" or "potential risks".
 8. DO NOT flag code based on words found in comments or docstrings (e.g., if a docstring mentions "SQL INJECTION" or "PATH TRAVERSAL"). Evaluate ONLY the executable Python logic.
 
-
 --- ZERO-VULNERABILITY EXPECTATION ---
 If the target file contains NO genuine security vulnerabilities, you MUST return an empty array for `vulnerabilities`:
 {"target_file": "<TARGET_FILE>", "vulnerabilities": []}
 
---- OUTPUT REQUIREMENTS ---
-You MUST strictly output valid JSON conforming to the requested schema without markdown code blocks."""
+--- TOKEN COMPRESSION & OUTPUT REQUIREMENTS ---
+1. You MUST strictly output valid JSON conforming to the requested schema without markdown code blocks.
+2. ULTRA-CONCISE STRINGS: Keep `description` under 10 words (e.g., "SQL injection via string formatting query"). Keep `poc_exploit` under 25 characters (e.g., "' OR 1=1--")."""
 
 def scan_code_for_vulnerabilities(
     file_name: str, 
@@ -64,6 +64,7 @@ def scan_code_for_vulnerabilities(
     
     response = ollama.chat(
         model=target_model,
+        keep_alive=settings.keep_alive,
         options={
             "num_ctx": settings.num_ctx,
             "temperature": settings.temperature,  # Enforces greedy decoding for deterministic output

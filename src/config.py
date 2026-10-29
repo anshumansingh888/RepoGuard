@@ -10,8 +10,9 @@ class RepoGuardSettings(BaseModel):
     model_name: str = "qwen2.5-coder:7b"
     temperature: float = 0.0
     seed: int = 42
-    num_ctx: int = 4096
+    num_ctx: int = 2048
     max_iterations: int = 3
+    keep_alive: str = "1h"
 
 
 # Global configuration instance

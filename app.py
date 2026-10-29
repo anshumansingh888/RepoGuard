@@ -273,6 +273,11 @@ with st.sidebar:
     st.markdown("**Core Configuration**")
     model_choice = st.selectbox("LLM Inference Engine", [settings.model_name], index=0)
     max_passes = st.slider("Convergence Loop Depth", min_value=1, max_value=5, value=settings.max_iterations)
+    verify_fix = st.checkbox(
+        "Verify Fix with Re-Audit (Pass 2)", 
+        value=True, 
+        help="When enabled, runs a second pass with Agent 1 to verify 0 residual flaws. Uncheck for Fast Mode (skips re-audit after valid fix)."
+    )
     
     st.markdown("---")
     st.markdown("**Sample Selection**")
@@ -438,7 +443,10 @@ if target_code:
             elif kind == "fast_path_exit":
                 status_box.write("✅ **Fast-path Exit:** No vulnerabilities found. Source code is secure.")
             elif kind == "convergence_exit":
-                status_box.write(f"🎉 **Convergence Reached on Pass {pass_num}:** Re-audit verified 0 residual flaws!")
+                if event.get("fast_mode"):
+                    status_box.write("⚡ **Fast Mode Complete:** Remediation synthesized & verified valid by AST Gatekeeper (Pass 2 re-audit skipped).")
+                else:
+                    status_box.write(f"🎉 **Convergence Reached on Pass {pass_num}:** Re-audit verified 0 residual flaws!")
             elif kind == "fix_start":
                 count = event.get("vulnerabilities", 0)
                 status_box.write(f"⚠️ **Pass {pass_num}: Flagged {count} vulnerability(ies). Dispatching Agent 2 (Fixer)...**")
@@ -449,7 +457,12 @@ if target_code:
                 status_box.write(f"🛑 **Maximum Passes Reached ({max_passes}):** {count} residual flaw(s) remain.")
 
         start_time = time.time()
-        result = pipeline.run(target_filename, target_code, on_step=streamlit_trace_handler)
+        result = pipeline.run(
+            target_filename, 
+            target_code, 
+            on_step=streamlit_trace_handler, 
+            verify_fix=verify_fix
+        )
         elapsed_time = round(time.time() - start_time, 2)
         status_box.update(label=f"Pipeline Completed in {elapsed_time}s", state="complete", expanded=False)
 

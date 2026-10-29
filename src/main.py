@@ -14,7 +14,8 @@ clean_markdown_fences = RepoGuardPipeline.clean_markdown_fences
 def run_repoguard_pipeline(
     target_path: str = "samples/vulnerable_sample.py", 
     output_path: str = "fixed_sample.py",
-    max_iterations: int = settings.max_iterations
+    max_iterations: int = settings.max_iterations,
+    verify_fix: bool = True
 ) -> PipelineResult:
     """Executes the RepoGuard pipeline from the CLI and writes the secure output."""
     print(f"🚀 [RepoGuard] Starting pipeline scan for: '{target_path}'")
@@ -46,7 +47,10 @@ def run_repoguard_pipeline(
             print("=======================================================")
         elif kind == "convergence_exit":
             print("\n=======================================================")
-            print(f"✅ REPAIR VERIFIED: Code passed audit on Iteration {pass_num}!")
+            if event.get("fast_mode"):
+                print("⚡ FAST MODE: Remediation applied & verified valid by AST Gatekeeper! (Re-audit skipped)")
+            else:
+                print(f"✅ REPAIR VERIFIED: Code passed audit on Iteration {pass_num}!")
             print(f"   Writing secure code to '{output_path}'...")
             print("=======================================================")
         elif kind == "fix_start":
@@ -56,7 +60,7 @@ def run_repoguard_pipeline(
         elif kind == "max_iterations_reached":
             print(f"🛑 Reached maximum iteration limit ({max_iterations}). Writing best-effort output...")
 
-    result = pipeline.run(target_path, source_code, on_step=cli_progress_handler)
+    result = pipeline.run(target_path, source_code, on_step=cli_progress_handler, verify_fix=verify_fix)
 
     # Persist the output code
     with open(output_path, "w", encoding="utf-8") as f:
